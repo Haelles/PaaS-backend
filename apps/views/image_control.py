@@ -22,10 +22,48 @@ def allowed_file(filename):
            filename.rsplit('.', 1)[1] in current_app.config.get('ALLOWED_EXTENSIONS')
 
 
-@image_control.route('/test')
+@image_control.route('/test', methods=['GET'])
 def test():
     print('this is image_control-bp, route is /image')
     return 'this is image_control-bp, route is /image'
+
+
+# 删除某个repo中的某个镜像
+@image_control.route('/remove_image', methods=['POST'])
+def remove_image():
+    return_dict = {'statusCode': '200', 'message': 'successful!'}
+    username = request.form.get('username')
+    repo = request.form.get('repo')
+    tag = request.form.get('tag')
+
+    if username is None or tag is None or repo is None:
+        return_dict['message'] = "username、tag、repo字段都不能为空"
+        return flask.jsonify(return_dict)
+    cur_user = User.query.filter(User.name == username).first()
+    if cur_user is None:
+        return_dict['message'] = "用户名不存在，请检查用户信息"
+        return flask.jsonify(return_dict)
+
+    final_tag = cur_user.name + "/" + repo + ":" + tag
+    client = docker.DockerClient(base_url='unix://var/run/docker.sock')
+
+    # 删除镜像tag
+    try:
+        client.images.remove(final_tag)
+        # 删除mysql表中的tag
+        user_image = UserImages.query.filter(
+            and_(UserImages.user_name == cur_user.name, UserImages.image_repo == repo,
+                 UserImages.image_tag == tag)).first()
+        if user_image is None:
+            return_dict['message'] = "找不到该镜像，请重新检查tag"
+        else:
+            db.session.delete(user_image)
+            db.session.commit()
+            return_dict['message'] = "删除成功"
+    except docker.errors.ImageNotFound:
+        return_dict['message'] = "找不到该镜像，请重新检查tag"
+    finally:
+        return flask.jsonify(return_dict)
 
 
 # 修改镜像的tag
@@ -33,46 +71,52 @@ def test():
 def tag_image():
     return_dict = {'statusCode': '200', 'message': 'successful!'}
     username = request.form.get('username')
-    # 偷懒，设定用户输入的tag只包含tag，`docker images`得到的REPOSITORY固定取username
+    old_repo = request.form.get('oldrepo')
+    new_repo = request.form.get('newrepo')
     old_tag = request.form.get('oldtag')
     new_tag = request.form.get('newtag')
-    if username is None or new_tag is None or old_tag is None:
-        return_dict['message'] = "username、oldtag、newtag都不能为空"
+    if username is None or new_tag is None or old_tag is None or old_repo is None or new_repo is None:
+        return_dict['message'] = "username、oldtag、newtag、old_repo、old_repo字段都不能为空"
         return flask.jsonify(return_dict)
 
     cur_user = User.query.filter(User.name == username).first()
     if cur_user is None:
-        return_dict['message'] = "用户名不存在"
+        return_dict['message'] = "用户名不存在，请检查用户信息"
         return flask.jsonify(return_dict)
 
-    old_tag = cur_user.name + ":" + old_tag
-    new_tag = cur_user.name + ":" + new_tag
+    final_old_tag = cur_user.name + "/" + old_repo + ":" + old_tag
+    final_new_tag = cur_user.name + "/" + new_repo + ":" + new_tag
 
     client = docker.DockerClient(base_url='unix://var/run/docker.sock')
-    image = client.images.get(old_tag)
 
-    if UserImages.query.filter(UserImages.image_tag == old_tag).first() is None:
+    if UserImages.query.filter(and_(UserImages.user_name == cur_user.name, UserImages.image_repo == old_repo,
+                                    UserImages.image_tag == old_tag)).first() is None:
         return_dict['message'] = "找不到镜像，请检查tag是否有误"
         return flask.jsonify(return_dict)
 
-    if UserImages.query.filter(UserImages.image_tag == new_tag).first() is not None:
-        return_dict['message'] = "这个tag已被使用过，请换一个"
+    if UserImages.query.filter(and_(UserImages.user_name == cur_user.name, UserImages.image_repo == new_repo,
+                                    UserImages.image_tag == new_tag)).first() is not None:
+        return_dict['message'] = "这个repo/tag已被使用过，请换一个"
         return flask.jsonify(return_dict)
 
     try:
         # 修改镜像tag
-        for tag in image.tags:
-            print(tag)
-        image.tag(new_tag)
-        print("------")
-        for tag in image.tags:
-            print(tag)
-        image.tag(new_tag)
+        image = client.images.get(final_old_tag)
+        # for tag in image.tags:
+        #     print(tag)
+        image.tag(final_new_tag)
+        # print("------")
+        # for tag in image.tags:
+        #     print(tag)
+        client.images.remove(final_old_tag)
         # 修改mysql表中的tag
-        user_image = UserImages.query.filter(UserImages.image_tag == old_tag).first()
+        user_image = UserImages.query.filter(
+            and_(UserImages.user_name == cur_user.name, UserImages.image_repo == old_repo,
+                 UserImages.image_tag == old_tag)).first()
         user_image.image_tag = new_tag
+        user_image.image_repo = new_repo
         db.session.commit()
-        return_dict["info"] = {"userId": cur_user.id, "imageId": user_image.id, "imageTag": new_tag}
+        return_dict["info"] = {"userId": cur_user.id, "imageId": user_image.id, "repo": new_repo, "imageTag": new_tag}
     except docker.errors.ImageNotFound:
         return_dict['message'] = "找不到该镜像，请重新检查tag"
     except docker.errors.APIError:
@@ -81,22 +125,46 @@ def tag_image():
         return flask.jsonify(return_dict)
 
 
-# 查看某个用户的全部镜像
-@image_control.route('/list_all_my_images', methods=['POST'])
-def list_all_my_image():
+# 查看某个用户某个repo中的全部镜像
+@image_control.route('/list_all_repo_images', methods=['POST'])
+def list_all_repo_images():
+    return_dict = {'statusCode': '200', 'message': 'successful!'}
+    username = request.form.get('username')
+    # repo字段中不需要添加username，只取username/repo中的repo即可
+    repo = request.form.get('repo')
+    cur_user = User.query.filter(User.name == username).first()
+    if cur_user is None:
+        return_dict['message'] = "用户不存在，请检查用户名"
+        return flask.jsonify(return_dict)
+    if repo is None:
+        return_dict['message'] = "repo字段不能为空"
+        return flask.jsonify(return_dict)
+    search_res = UserImages.query.filter(UserImages.user_name == cur_user.name, UserImages.image_repo == repo).all()
+    if len(search_res) == 0:
+        return_dict['message'] = "用户这个repo中拥有的镜像数为0"
+    res_list = []
+    for res in search_res:
+        res_list.append(res.to_json())
+    return_dict['images'] = res_list
+    return flask.jsonify(return_dict)
+
+
+# 查看某个用户的全部repo
+@image_control.route('/list_all_my_repo', methods=['POST'])
+def list_all_my_repo():
     return_dict = {'statusCode': '200', 'message': 'successful!'}
     username = request.form.get('username')
     cur_user = User.query.filter(User.name == username).first()
     if cur_user is None:
         return_dict['message'] = "用户不存在，请检查用户名"
         return flask.jsonify(return_dict)
-    search_res = UserImages.query.filter(UserImages.user_id == cur_user.id).all()
-    res_list = []
+    search_res = UserImages.query.filter(UserImages.user_name == cur_user.name).all()
+    res_list = set()
     if len(search_res) == 0:
-        return_dict['message'] = "用户拥有的镜像数为0"
+        return_dict['message'] = "用户拥有的repo数为0"
     for res in search_res:
-        res_list.append(res.to_json())
-    return_dict['images'] = res_list
+        res_list.add(res.image_repo)
+    return_dict['images'] = list(res_list)
     return flask.jsonify(return_dict)
 
 
@@ -109,6 +177,10 @@ def upload_image():
         return_dict['message'] = "出错，缺少文件或用户名为空"
         return flask.jsonify(return_dict)
     file = request.files.get('file')
+    cur_user = User.query.filter(User.name == username).first()
+    if cur_user is None:
+        return_dict['message'] = "用户不存在，请检查用户名"
+        return flask.jsonify(return_dict)
     if file is None or file.filename == '':
         return_dict['message'] = "出错，文件和文件名不能为空"
         return return_dict
@@ -128,32 +200,35 @@ def upload_image():
             zf.extractall(file_path)
 
         # 开始build
+        repo = request.form.get('repo')
         tag = request.form.get('tag')
-        # 偷懒的写法，限制镜像tag格式为"用户名:用户输入的tag"
-        if tag is None or ':' in tag:
-            return_dict['message'] = "镜像build失败，tag不能为空，且tag需要是一个不含':'的字符串"
+        # 偷懒的写法，限制镜像tag格式为"repo:用户输入的tag"，最终对应命令docker build -t username/repo:tag
+        if repo is None or ':' in repo or ":" in tag:
+            return_dict['message'] = "镜像build失败，repo字段不能为空，且repo/tag字段中不能包含冒号"
             return flask.jsonify(return_dict)
-        cur_user = User.query.filter(User.name == username).first()
-        tag = cur_user.name + ':' + tag
+        if tag is None:
+            tag = "latest"
+
+        final_tag = cur_user.name + "/" + repo + ':' + tag
 
         # 限制镜像tag不能与已有的重复
-        if UserImages.query.filter(and_(UserImages.user_id == cur_user.id, UserImages.image_tag == tag)).first() is not None:
-            return_dict['message'] = "镜像build失败，tag与已有的tag重复"
+        if UserImages.query.filter(and_(UserImages.user_name == cur_user.name, UserImages.image_repo == repo,
+                                        UserImages.image_tag == tag)).first() is not None:
+            return_dict['message'] = "镜像build失败，tag与这个repo中已有的tag重复"
             return flask.jsonify(return_dict)
         client = docker.DockerClient(base_url='unix://var/run/docker.sock')
-        _, _ = client.images.build(path=file_path, tag=tag)
+        _, _ = client.images.build(path=file_path, tag=final_tag)
 
-        user_image = UserImages(user_id=cur_user.id, image_tag=tag)
+        user_image = UserImages(user_name=cur_user.name, image_repo=repo, image_tag=tag)
         db.session.add(user_image)
         db.session.commit()
 
         return_dict['message'] = "镜像构建成功"
-        return_dict['info'] = {"userId": cur_user.id, "imageId": user_image.id, "imageTag": tag}
+        return_dict['info'] = {"username": cur_user.name, "imageId": user_image.id, "repo": repo, "imageTag": tag}
         return flask.jsonify(return_dict)
 
     return_dict['message'] = "出错，文件不能为空且文件格式需符合要求（zip）"
     return flask.jsonify(return_dict)
-
 
 # # todo 进一步检查一下写法
 # @bp.route('/download', methods=['POST'])
