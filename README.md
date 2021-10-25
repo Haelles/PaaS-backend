@@ -1,5 +1,25 @@
 # PaaS-backend
 
+## 配置
+
+`pip install -r requirements.txt`
+
+
+
+settings.py中`SQLALCHEMY_DATABASE_URI = 'mysql+pymysql://root:@localhost:3306/paas_prac'`修改成本机数据库
+
+
+
+修改数据表：
+
+`python manage.py db init `执行一次即可
+
+`python manage.py db migrate`
+
+`python manage.py db upgrade`
+
+
+
 ## api
 
 ### 登录注册
@@ -122,7 +142,27 @@
 
 
 
+/deploy/create_deployment
 
+上传一个yaml文件，创建一个deployment **？需要返回的信息是**
+
+参数：
+
+* username  如"henry"
+* file 如"nginx.yaml"
+
+在/data/henry下存储这个yaml文件，然后创建
+
+
+
+/deploy/list_all_pods
+
+查看某个用户某个namespace下的所有pods
+
+参数：
+
+* username  如"henry"
+* namespace 如"test"
 
 
 
@@ -151,3 +191,4 @@ UserImages:
 镜像名字格式为 username/image\_repo:image\_tag
 
 前端传参只需要传repo和tag即可，后端会加上username
+

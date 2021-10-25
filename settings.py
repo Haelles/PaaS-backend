@@ -16,4 +16,4 @@ BASE_DIR = os.path.dirname(__file__)
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'data')
 
 # 设置允许上传的文件类型
-ALLOWED_EXTENSIONS = {'zip'}
+ALLOWED_EXTENSIONS = {'zip', 'yaml', 'yml'}

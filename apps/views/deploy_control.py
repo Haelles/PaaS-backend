@@ -6,6 +6,7 @@ import random
 from pprint import pprint
 
 import flask
+import yaml
 from docker import errors
 from kubernetes import client, config
 from flask import send_from_directory, Flask, request, Blueprint, current_app
@@ -84,7 +85,7 @@ def list_all_my_namespaces():
     res = []
     for name in all_namespace:
         if name.startswith(username):
-            res.append(name)
+            res.append(name.split('-')[-1])  # 屏蔽用户名的作用
     return_dict['namespaces'] = res
     return flask.jsonify(return_dict)
 
@@ -110,22 +111,91 @@ def delete_namespace():
     return flask.jsonify(return_dict)
 
 
+# 创建一个deployment
+@deploy_control.route('/create_deployment', methods=['POST'])
+def create_deployment():
+    return_dict = {'statusCode': '200', 'message': 'successful!'}
 
-@deploy_control.route('/create_deploy', methods=['POST'])
-def create_deployment(namespace: str, name: str, update_image: str):
-    # TODO 检查镜像存在
     username = request.form.get('username')
-    namespace = username + '$' + namespace
-    # TODO 参数
-    body = client.V1Deployment(api_version='apps/v1', kind='Deployment', metadata=None, spec=None)
-    # body.spec.template.spec.containers[0].image = update_image
-    # body.spec.template.spec.containers[0].name = name
-    # TODO return value
+    if 'file' not in request.files or username is None:
+        return_dict['message'] = "出错，缺少文件或用户名为空"
+        return flask.jsonify(return_dict)
+    file = request.files.get('file')
+    cur_user = User.query.filter(User.name == username).first()
+    if cur_user is None:
+        return_dict['message'] = "用户不存在，请检查用户名"
+        return flask.jsonify(return_dict)
+    if file is None or file.filename == '':
+        return_dict['message'] = "出错，文件和文件名不能为空"
+        return flask.jsonify(return_dict)
+
+    if file and (file.filename.endswith('yml') or file.filename.endswith('yaml')):
+        filename = file.filename  # e.g. nginx.yml
+        user_path = os.path.join(current_app.config.get('UPLOAD_FOLDER'), username)  # /data/username
+        if not os.path.exists(user_path):
+            os.makedirs(user_path)
+        # TODO 文件名重复的问题
+        # random_int = random.randint(0, 150)
+        # file_path = os.path.join(user_path, filename.rsplit('.', 1)[-2] + str(random_int))
+        file_path = os.path.join(user_path, filename)
+        file.save(file_path)
+
+        with open(file_path) as f:
+            dep = yaml.safe_load(f)
+            namespace = dep.get("metadata")
+            if namespace is None:
+                return_dict['message'] = "缺少metadata字段"
+                return return_dict
+            namespace = namespace.get("namespace")  # 默认设置为username-default
+            if namespace is None:
+                namespace = "default"
+            try:
+                # pprint(dep)
+                dep['metadata']['namespace'] = username+"-"+namespace
+                # pprint(dep)
+                resp = k8s_apps_v1.create_namespaced_deployment(body=dep, namespace=username+"-"+namespace)
+                # pprint(resp)
+                return_dict['message'] = "创建成功"
+                return_dict['info'] = {"selector": dep['selector']}
+            except client.exceptions.ApiException as e:
+                return_dict['info'] = {}
+                return_dict['message'] = json.loads(e.body)['message']
+            finally:
+                return flask.jsonify(return_dict)
+
+
+@deploy_control.route('list_all_pods', methods=['POST'])
+def list_all_pods():
+    return_dict = {'statusCode': '200', 'message': 'successful!'}
+    username = request.form.get('username')
+    namespace = request.form.get('namespace', default=None)
+
+    if username is "" or namespace is "":
+        return_dict['message'] = "username、namespace字段都不能为空"
+        return flask.jsonify(return_dict)
+    cur_user = User.query.filter(User.name == username).first()
+    if cur_user is None:
+        return_dict['message'] = "用户名不存在，请检查用户信息"
+        return flask.jsonify(return_dict)
+
+    namespace = username + "-" + namespace
     try:
-        api_response = k8s_apps_v1.create_namespaced_deployment(namespace=namespace, name=name, body=body)
-        return api_response
-    except ApiException as e:
-        return 'www'
+        resp = k8s_core_v1.list_namespaced_pod(namespace=namespace)
+        # pprint(resp)
+        # TODO 需要什么信息
+        res_list = []
+        for res in resp:
+            res_list.append(str(res))
+        return_dict['message'] = "创建成功"
+        return_dict['info'] = res_list
+    except client.exceptions.ApiException as e:
+        return_dict['info'] = {}
+        return_dict['message'] = json.loads(e.body)['message']
+    finally:
+        return flask.jsonify(return_dict)
+
+
+
 
 
 @deploy_control.route('read_deployment_status', methods=['POST'])
