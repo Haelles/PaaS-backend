@@ -29,8 +29,8 @@ def test():
 
 
 # 删除某个repo中的某个镜像
-@image_control.route('/remove_image', methods=['POST'])
-def remove_image():
+@image_control.route('/delete_image', methods=['POST'])
+def delete_image():
     return_dict = {'statusCode': '200', 'message': 'successful!'}
     username = request.form.get('username')
     repo = request.form.get('repo')

@@ -68,7 +68,7 @@
 
 
 
-/images/remove_image
+/images/delete_image
 
 删除某个repo中的某个镜像
 
@@ -83,6 +83,42 @@
 
 
 ### 容器管理
+
+/deploy/create_namespace
+
+创建一个namespace，**现暂时按照username-namespace的格式创建**
+
+参数：
+
+* username  如"henry"
+* namespace 如"test"
+
+则会创建一个henry-test的namespace
+
+
+
+/deploy/list_all_my_namespace
+
+查看某个用户所有的namespace
+
+参数：
+
+* username  
+
+
+
+
+
+/deploy/delete_namespace
+
+查看某个用户的某个namespace
+
+参数：
+
+* username  如"henry"
+* namespace 如"test"
+
+则会删除henry-test这个namespace
 
 
 

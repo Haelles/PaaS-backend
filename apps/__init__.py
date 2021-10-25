@@ -2,6 +2,7 @@ from flask import Flask
 import settings
 from apps.views.image_control import image_control
 from apps.views.users import user
+from apps.views.deploy_control import deploy_control
 from exts import db
 
 
@@ -15,4 +16,5 @@ def create_app():
     # 注册蓝图
     app.register_blueprint(image_control)
     app.register_blueprint(user)
+    app.register_blueprint(deploy_control)
     return app
