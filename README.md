@@ -166,6 +166,33 @@ settings.py中`SQLALCHEMY_DATABASE_URI = 'mysql+pymysql://root:@localhost:3306/p
 
 
 
+/deploy/update_deployment
+
+上传更新后的yaml文件，对deployment进行更新
+
+参数：
+
+* username  如"henry"
+* file 如"nginx.yaml"
+
+
+
+/deploy/delete_deployment
+
+删除用户某个namespace中的一个deployment 
+
+参数：
+
+* username  如"henry"
+* namespace
+* deployment 要删除的deployment的名字
+
+
+
+
+
+
+
 ### 应用部署
 
 

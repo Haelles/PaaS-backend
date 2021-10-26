@@ -156,7 +156,7 @@ def create_deployment():
                 resp = k8s_apps_v1.create_namespaced_deployment(body=dep, namespace=username+"-"+namespace)
                 # pprint(resp)
                 return_dict['message'] = "创建成功"
-                return_dict['info'] = {"selector": dep['selector']}
+                return_dict['info'] = {"selector": dep['spec']['selector']}
             except client.exceptions.ApiException as e:
                 return_dict['info'] = {}
                 return_dict['message'] = json.loads(e.body)['message']
@@ -168,7 +168,7 @@ def create_deployment():
 def list_all_pods():
     return_dict = {'statusCode': '200', 'message': 'successful!'}
     username = request.form.get('username')
-    namespace = request.form.get('namespace', default=None)
+    namespace = request.form.get('namespace')
 
     if username is "" or namespace is "":
         return_dict['message'] = "username、namespace字段都不能为空"
@@ -178,22 +178,81 @@ def list_all_pods():
         return_dict['message'] = "用户名不存在，请检查用户信息"
         return flask.jsonify(return_dict)
 
-    namespace = username + "-" + namespace
+    final_namespace = username + "-" + namespace
     try:
-        resp = k8s_core_v1.list_namespaced_pod(namespace=namespace)
-        # pprint(resp)
+        resp = k8s_core_v1.list_namespaced_pod(namespace=final_namespace)
+
         # TODO 需要什么信息
         res_list = []
-        for res in resp:
-            res_list.append(str(res))
-        return_dict['message'] = "创建成功"
-        return_dict['info'] = res_list
+        for res in resp.items:
+            # print('\n'.join(['%s:%s' % item for item in res.__dict__.items()]))
+
+            res_list.append({"name": res.metadata.name, "ip": res.status.pod_ip})
+
+            # pprint(res.__dict__.get('_metadata').name)
+            # pprint(res.__dict__.get('_status').status)
+
+        return_dict['message'] = "查看成功"
+
+        return_dict['info'] = {"namespace": namespace, "pods": res_list}
     except client.exceptions.ApiException as e:
         return_dict['info'] = {}
         return_dict['message'] = json.loads(e.body)['message']
     finally:
         return flask.jsonify(return_dict)
 
+
+# 更新deployment
+@deploy_control.route('update_deployment', methods=['POST'])
+def update_deployment():
+    return_dict = {'statusCode': '200', 'message': 'successful!'}
+
+    username = request.form.get('username')
+    if 'file' not in request.files or username is None:
+        return_dict['message'] = "出错，缺少文件或用户名为空"
+        return flask.jsonify(return_dict)
+    file = request.files.get('file')
+    cur_user = User.query.filter(User.name == username).first()
+    if cur_user is None:
+        return_dict['message'] = "用户不存在，请检查用户名"
+        return flask.jsonify(return_dict)
+    if file is None or file.filename == '':
+        return_dict['message'] = "出错，文件和文件名不能为空"
+        return flask.jsonify(return_dict)
+
+    if file and (file.filename.endswith('yml') or file.filename.endswith('yaml')):
+        filename = file.filename  # e.g. nginx.yml
+        user_path = os.path.join(current_app.config.get('UPLOAD_FOLDER'), username)  # /data/username
+        if not os.path.exists(user_path):
+            os.makedirs(user_path)
+        # TODO 文件名重复的问题
+        # random_int = random.randint(0, 150)
+        # file_path = os.path.join(user_path, filename.rsplit('.', 1)[-2] + str(random_int))
+        file_path = os.path.join(user_path, filename)
+        file.save(file_path)
+
+        with open(file_path) as f:
+            dep = yaml.safe_load(f)
+            metadata = dep.get("metadata")
+            if metadata is None:
+                return_dict['message'] = "缺少metadata字段"
+                return return_dict
+            namespace = metadata.get("namespace")  # 默认设置为username-default
+            if namespace is None:
+                namespace = "default"
+            try:
+                # pprint(dep)
+                dep['metadata']['namespace'] = username + "-" + namespace
+                # pprint(dep)
+                resp = k8s_apps_v1.patch_namespaced_deployment(name=metadata.get('name'), body=dep, namespace=username + "-" + namespace)
+                # pprint(resp)
+                return_dict['message'] = "更新成功"
+                return_dict['info'] = {"selector": dep['spec']['selector']}
+            except client.exceptions.ApiException as e:
+                return_dict['info'] = {}
+                return_dict['message'] = json.loads(e.body)['message']
+            finally:
+                return flask.jsonify(return_dict)
 
 
 
@@ -222,12 +281,32 @@ def list_deployment(namespace: str):
 
 
 @deploy_control.route('delete_deployment', methods=['POST'])
-def delete_deployment(namespace: str, name: str):
+def delete_deployment():
+    return_dict = {'statusCode': '200', 'message': 'successful!'}
     username = request.form.get('username')
-    namespace = username + '$' + namespace
+    namespace = request.form.get('namespace')
+    deployment = request.form.get('deployment')
+
+    if username is "" or namespace is "" or deployment is "":
+        return_dict['message'] = "username、namespace、deployment字段都不能为空"
+        return flask.jsonify(return_dict)
+    cur_user = User.query.filter(User.name == username).first()
+    if cur_user is None:
+        return_dict['message'] = "用户名不存在，请检查用户信息"
+        return flask.jsonify(return_dict)
+
+    final_namespace = username + "-" + namespace
     # TODO 检查 deployment 存在
     try:
-        api_response = k8s_apps_v1.delete_namespaced_deployment(namespace=namespace, name=name)
-        return api_response
+        resp = k8s_apps_v1.delete_namespaced_deployment(
+            name=deployment,
+            namespace=final_namespace,
+            body=client.V1DeleteOptions(
+                propagation_policy="Foreground", grace_period_seconds=5
+            ),
+        )
+        return_dict['message'] = "删除成功"
     except ApiException as e:
-        return 'www'
+        return_dict['message'] = json.loads(e.body)['message']
+    finally:
+        return flask.jsonify(return_dict)
