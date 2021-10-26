@@ -104,6 +104,12 @@ settings.py中`SQLALCHEMY_DATABASE_URI = 'mysql+pymysql://root:@localhost:3306/p
 
 ### 容器管理
 
+/deploy/list_all\_nodes
+
+get方法，查看所有nodes信息
+
+
+
 /deploy/create_namespace
 
 创建一个namespace，**现暂时按照username-namespace的格式创建**
@@ -166,6 +172,17 @@ settings.py中`SQLALCHEMY_DATABASE_URI = 'mysql+pymysql://root:@localhost:3306/p
 
 
 
+/deploy/list_all\_developments
+
+查看某个用户在某个namespace下的所有developments
+
+参数：
+
+* username  如"henry"
+* namespace 如"test"
+
+
+
 /deploy/update_deployment
 
 上传更新后的yaml文件，对deployment进行更新
@@ -186,6 +203,44 @@ settings.py中`SQLALCHEMY_DATABASE_URI = 'mysql+pymysql://root:@localhost:3306/p
 * username  如"henry"
 * namespace
 * deployment 要删除的deployment的名字
+
+
+
+/deploy/create_service
+
+上传一个yaml文件，创建一个service
+
+参数：
+
+* username  如"henry"
+* file 如"nginx-service.yaml"
+
+在/data/henry下存储这个yaml文件，然后创建
+
+
+
+/deploy/update_service
+
+上传更新后的yaml文件，对service进行更新
+
+参数：
+
+* username  如"henry"
+* file 如"nginx.yaml"
+
+
+
+/deploy/delete_service
+
+删除某个service
+
+参数：
+
+* username  如"henry"
+* namespace 如"name1"
+* service 服务的名称如"nginx-test-service"
+
+效果为删除henry-name1这个namespace下的服务nginx-test-service
 
 
 
