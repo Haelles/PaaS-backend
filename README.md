@@ -10,7 +10,7 @@ settings.py中`SQLALCHEMY_DATABASE_URI = 'mysql+pymysql://root:@localhost:3306/p
 
 
 
-修改数据表：
+修改数据表
 
 `python manage.py db init `执行一次即可
 
